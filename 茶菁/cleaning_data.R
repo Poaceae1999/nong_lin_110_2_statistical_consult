@@ -1,0 +1,144 @@
+library('tidyverse')
+library(readxl)
+library(data.table)
+library(magrittr)
+# !!!Note,part of data ,order of open_plane buds_weight and avg_internode,has been modified by hand 
+# tea_data
+{
+  #use pattern of excel file name to import data
+  x <- c('二','三','四','五','六')
+  fresh_108 <- NULL
+  for (i in 1:5) {
+    fresh_108[i] <- paste0("D:/living/002_execute/Class/統計諮詢/農林公司/茶菁/茶菁-108第",x[i],"水(raw).xlsx")
+  }
+  
+  fresh_108_ij <- data.frame(1:5,1:5,1:5,1:5,1:5,1:5,1:5)
+  colnames(fresh_108_ij) <- c("sheet1","sheet2","sheet3","sheet4","sheet5","sheet6","sheet7")
+  for (i in 1:7) {
+    for (j in 1:7){
+      fresh_108_ij[][i,j] <- excel_sheets(fresh_108[i])[j]
+    }}
+  
+  # import data to each variable 
+  
+  for (i in 1:5) {
+    for (j in 1:7) {
+      try(assign(
+        paste0('fresh_108_',i,'_',j),
+        read_excel(fresh_108[i],sheet = fresh_108_ij[i,j])))   # assign value  to different variables
+    } 
+  }
+  
+  
+  # create space in the beginning of each data frame to place 5 variables which is not in format.
+  for (i in 1:5) {
+    for (j in 1:7) {
+      try(
+        assign(paste0('fresh_108_',i,'_',j),
+               cbind(NA,NA,NA,NA,NA,
+                     get(paste0('fresh_108_',i,'_',j))))) # assign value  to different variables  
+    } 
+  }
+  
+  # gather variables to a list
+  fresh_108_star <- list(fresh_108_1_1,
+                         fresh_108_1_2,
+                         fresh_108_1_3,
+                         fresh_108_1_4,
+                         fresh_108_1_5,
+                         fresh_108_1_6,
+                         fresh_108_1_7,
+                         fresh_108_2_1,
+                         fresh_108_2_2,
+                         fresh_108_2_3,
+                         fresh_108_2_4,
+                         fresh_108_2_5,
+                         fresh_108_2_6,
+                         fresh_108_2_7,
+                         fresh_108_3_1,
+                         fresh_108_3_2,
+                         fresh_108_3_3,
+                         fresh_108_3_4,
+                         fresh_108_4_1,
+                         fresh_108_4_2,
+                         fresh_108_4_3,
+                         fresh_108_4_4,
+                         fresh_108_5_1,
+                         fresh_108_5_2,
+                         fresh_108_5_3,
+                         fresh_108_5_4
+  )
+  
+  # put values to each variables
+  for (i in 1:length(fresh_108_star)){
+    fresh_108_star[[i]][,1] <- fresh_108_star[[i]][1,7]
+    fresh_108_star[[i]][,2] <- fresh_108_star[[i]][2,7]
+    fresh_108_star[[i]][,3] <- fresh_108_star[[i]][3,7]
+    fresh_108_star[[i]][,4] <- fresh_108_star[[i]][4,7]
+    fresh_108_star[[i]][,5] <- if(is.na(fresh_108_star[[i]][2,9])){fresh_108_star[[i]][2,10]}else{fresh_108_star[[i]][2,9]}
+  }
+  
+  # delete the first 5 rows which is combine to the first 5 column in the step above
+  for (i in 1:length(fresh_108_star)){
+    fresh_108_star[[i]] <- fresh_108_star[[i]][6:38,1:12]
+  }
+  
+  
+  # combine data to one data frame
+  ST=1
+  ED=0
+  dat <- data.frame(matrix(0,26*33,12))
+  for (i in 1:length(fresh_108_star)){
+    for (j in length(rownames(fresh_108_star[[i]]))) {
+      ED <- ED + j
+      dat[ST:ED,] <- fresh_108_star[[i]][1:j,]
+      ST <- ST + j
+    }
+    
+  }
+  
+  # renaming column
+  colnames(dat) <- c('date','cultivar','location','season','cutting_height','replication','tea_buds_cm','leaf_number','avg_inter_node','open_plane','buds_weight_100','sample_label')
+  
+  # filling sample_label
+  for (i in 1:length(dat$sample_label)) {
+    if(is.na(dat$sample_label[i]))
+      dat$sample_label[i] <- dat$sample_label[i-1]
+    else if(str_detect(dat$sample_label[i],'水'))
+      dat$sample_label[i] <- dat$sample_label[i-1]
+    else if(not(str_detect(dat$sample_label[i],'茶菁')))
+      dat$sample_label[i] <- dat$sample_label[i-1]
+  }
+  
+  # filling buds_weight_100
+  for (i in 1:length(dat$buds_weight_100)) {
+    if(is.na(dat$buds_weight_100[i]))
+      dat$buds_weight_100[i] <- dat$buds_weight_100[i-1]
+  }
+  
+  # delete 'cm' in cutting_height and transform it to int
+  dat$cutting_height <- as.integer(str_sub(dat$cutting_height,1,2))
+  #transform numeric data
+  dat$tea_buds_cm <- as.numeric(dat$tea_buds_cm)
+  dat$leaf_number <- as.numeric(dat$leaf_number)
+  dat$avg_inter_node <- as.numeric(dat$avg_inter_node)
+  dat$open_plane <- as.numeric(dat$open_plane)
+  dat$buds_weight_100 <- as.numeric(dat$buds_weight_100)
+  
+  #filling open plane
+  dat$open_plane[426] <- 0
+  dat$open_plane[39] <- 0
+  table(dat$date)
+  table(dat$cultivar)
+  table(dat$location)
+  table(dat$season)
+  table(dat$cutting_height)
+  table(dat$replication)
+  table(dat$tea_buds_cm)
+  table(dat$leaf_number)
+  table(dat$avg_inter_node)
+  table(dat$open_plane)
+  table(dat$buds_weight_100)
+  table(dat$sample_label)
+}
+write.table(dat,file="D:/living/002_execute/Class/統計諮詢/農林公司/茶菁/nonglin_tea_108.csv",sep=',',na='NA',row.names=F)
