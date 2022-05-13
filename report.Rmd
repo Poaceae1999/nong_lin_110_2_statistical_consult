@@ -1,16 +1,21 @@
 ---
 title: "report"
 author: "ZJH"
-date: "2022/5/13"
+date: "`r Sys.Date()`"
 output:
   word_document: default
   html_document: 
     df_print: paged
 ---
 
+```{r global_options,include=FALSE}
+knitr::opts_chunk$set(cache = TRUE,warning = FALSE)
+
+```
+
 # library import
 
-```{R,include = FALSE}
+```{R,include = FALSE,echo = FALSE}
 
 library(caret)  
 library(car)
@@ -30,7 +35,7 @@ library(forecast)
 
 # data import
 
-```{R,include = FALSE}
+```{R,include = FALSE,echo = FALSE}
 set.seed(100)
 tea <- readRDS('nonglin_tea.RDS')
 analyze_data <- readRDS('analyze.RDS')
@@ -41,9 +46,9 @@ weather <-  analyze_data %>% select(.,c(caffeine ,acu_mean_temp:Solar_rad_MJM2))
 # dev.off()
 ```
 
-\#data cleaning
+# data cleaning
 
-```{r}
+```{R,include = FALSE,echo = FALSE}
 
 numeric_dat <- analyze_data %>% select(.,-c(key,observe_ys,cultivar,observe_date:sample_label,G1L:O9L,year,temp_differ))
 chem <- analyze_data %>% select(,c(polyphenol:ECG,level))
@@ -60,14 +65,14 @@ chem_test_y <- chem_test$level
 
 # functions include
 
-```{r}
+```{R,include = FALSE,echo = FALSE}
 simple_roc <- function(labels, scores){
   labels <- labels[order(scores, decreasing=TRUE)]
   data.frame(TPR=cumsum(labels)/sum(labels), FPR=cumsum(!labels)/sum(!labels), labels)
 }
 ```
 
-```{r}
+```{R,include = FALSE,echo = FALSE}
 importanceplot <- function(pp=and_rf) {
   i_scores <- varImp(pp, conditional=TRUE)
   #Gathering rownames in 'var'  and converting it to the factor
@@ -89,7 +94,7 @@ importanceplot <- function(pp=and_rf) {
 
 ```
 
-```{r,include = FALSE}
+```{R,include = FALSE,echo = FALSE}
 cross_validation <- function(y_pred,ytest){
   y_pred <- ifelse(y_pred<=0.75,'B','C')
   ytest <- chem_test$level
@@ -97,7 +102,7 @@ cross_validation <- function(y_pred,ytest){
 }
 ```
 
-```{r}
+```{R,include = FALSE,echo = FALSE}
 rf_this <- function(y,dat,train, test,train_idx, test_idx) {
   model_formula <- formula(paste0(y,'~.'))
   xtrain <- model.matrix(model_formula, train)[,-1]
@@ -108,7 +113,6 @@ rf_this <- function(y,dat,train, test,train_idx, test_idx) {
   print(and_rf)
   importanceplot(and_rf)
 }
-{r,include = FALSE}
 
 scatter_hist_plot <- function(dat) {
   n = length(colnames(dat))
@@ -139,7 +143,7 @@ scatter_hist_plot <- function(dat) {
 }
 ```
 
-```{r}
+```{R,include = FALSE,echo = FALSE}
 for_back_selection <- function(y, train,test, test_y,model_chosen) {
   # 1.建立空的線性迴歸(只有截距項)
   
@@ -296,7 +300,7 @@ importanceplot(and_rf)
 stepwise - logistic regression ver.
 
 ```{r}
-for_back_selection(level,chem_train,chem_test,chem_test_y)
+for_back_selection('level',chem_train,chem_test,chem_test_y,glm)
 ```
 
 ```{R}
@@ -465,41 +469,10 @@ weather_test_y <- weather_test$caffeine
 
 ```{r}
 for_back_selection('caffeine',weather_train,weather_test,weather_test_y,lm)
-# 1.建立空的線性迴歸(只有截距項)
-null <- lm(caffeine  ~1 ,data=weather_train)
-full <- lm(caffeine  ~. ,data=weather_train)
-
-# 2.使用step()，一個一個把變數丟進去
-forward.lm = step(null, 
-                  # 從空模型開始，一個一個丟變數，
-                  # 最大不會超過完整的線性迴歸
-                  # (一定要加上界 upper=full，不可以不加) 
-                  scope=list(lower=null, upper=full), 
-                  direction="forward")
-backward.lm = step(full, 
-                  # 這裡可以加下界(lower=null)，也可以不加
-                  scope = list(upper=full), 
-                  direction="backward")  
-
-summary(forward.lm)
-summary(backward.lm)
-
-inter <- lm(level  ~. +caffeine*Gallic_Acid*GCG,data=chem_train)
-inter.b.lm = step(inter, 
-                  # 從空模型開始，一個一個丟變數，
-                  # 最大不會超過完整的線性迴歸
-                  # (一定要加上界 upper=full，不可以不加) 
-                  scope=list(lower=null, upper=inter), 
-                  direction="backward")
-summary(inter.b.lm)
-y_pred_forward <- predict(forward.lm,weather_test)
-accuracy(y_pred_forward,weather_test_y)
-y_pred_backward <- predict(backward.lm,weather_test)
-accuracy(y_pred_backward,weather_test_y)
 
 ```
 
-5/13 report
+5/14 report
 
 ```{r}
 
