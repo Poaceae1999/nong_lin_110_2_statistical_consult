@@ -2,7 +2,6 @@ library(rpart)
 library(tidyverse)
 library(glmnet)  
 library(caret)  
-library(dplyr)   
 library(car)
 library(nnet)
 library(GGally)
@@ -13,13 +12,25 @@ library(randomForest) # basic implementation
 library(ranger)       # a faster implementation of randomForest
 library(caret)        # an aggregator package for performing many machine learning models
 library(h2o)          # an extremely fast java-based platform
-library(dplyr)
 library(magrittr)
 
-
+# DATA prep----
 tea <- readRDS("nonglin_tea.RDS")
 analyze_data <- readRDS('analyze.RDS') 
-
+chem <- analyze_data %>% select(,c(polyphenol:total_catechins,level))
+chem$level <- factor(chem$level) %>% as.numeric()
+chem$level <- ifelse(chem$level>1,1,0)
+chem[,1:13] <- log(chem[,1:13])
+test_idx <- sample(1:138,size = 30)
+train_idx <- not(1:138 %in% test_idx)
+chem_test <- chem[test_idx,]
+chem_train <- chem[train_idx,]
+analyze_data <- readRDS('analyze.RDS') 
+numeric_dat <- analyze_data %>% select(.,-c(key,observe_ys,observe_date:sample_label,G1L:O9L,year,temp_differ))
+train_idx <- sample(1:138,100)
+test_idx <- !(1:138 %in%train_idx)
+train <- numeric_dat[train_idx,]
+test <- numeric_dat[test_idx,]
 # CART ----
 
 
@@ -42,20 +53,13 @@ chem_rpart_model <- rpart(total_catechins~.,data = analyze_data)
 plot(chem_rpart_model)
 text(chem_rpart_model)
 
-# lasso ----
-numeric_dat <- analyze_data %>% select(.,-c(key,level,observe_ys,observe_date:sample_label,G1L:O9L,FAA:total_catechins,year,temp_differ))
-train_idx <- sample(1:141,100)
-test_idx <- !(1:141 %in%train_idx)
-train <- numeric_dat[train_idx,]
-test <- numeric_dat[test_idx,]
+# lasso phenol~ ----
 xtrain <- model.matrix(polyphenol~., train)[,-1]
 ytrain <- train$polyphenol
 
 ytest <- test$polyphenol
 season7th <- 0
 xtest <- model.matrix(polyphenol~., test)[,-1] %>% cbind(season7th) %>% as_tibble() %>% select(.,season2nd:season6th,season7th,everything()) %>% as.matrix()
-
-
 
 
 lambdas_to_try <- 10^seq(-3, 7, length.out = 100)
@@ -76,17 +80,8 @@ biplot(prin)
 screeplot(prin)
 pheatmap(cor(numeric_dat))
 
-corrplot::corrplot(as.matrix(cor(numeric_dat)))
-urlPackage <- 'https://cran.r-project.org/src/contrib/Archive/randomForest/randomForest_4.6-14.tar.gz'
-install.packages(urlPackage, repos=NULL, type="source") 
 
-analyze_data <- readRDS('analyze.RDS') 
-numeric_dat <- analyze_data %>% select(.,-c(key,observe_ys,observe_date:sample_label,G1L:O9L,year,temp_differ))
-train_idx <- sample(1:138,100)
-test_idx <- !(1:138 %in%train_idx)
-train <- numeric_dat[train_idx,]
-test <- numeric_dat[test_idx,]
-
+# randomforest----
 xtrain <- model.matrix(polyphenol~.+acu_mean_temp*RH*Solar_rad_H*Solar_rad_MJM2, train)[,-1]
 ytrain <- train$polyphenol
 ytest <- test$polyphenol
@@ -141,12 +136,8 @@ data_caffeine <- analyze_data %>% select(., c(cultivar,Catechin,rain,acu_mean_te
 and_rf <- randomForest(Catechin~., data = data_caffeine[train_idx,])
 and_pred <- predict(and_rf,data_caffeine[test_idx,])
 (mean((and_pred-ytest)^2)/var(ytest))^0.5
-
-chem <- analyze_data %>% select(,c(polyphenol:total_catechins,level))
-chem$level <- factor(chem$level) %>% as.numeric()
-chem$level <- ifelse(chem$level>1,1,0)
-
-pr_chem <- prcomp(scale(chem) )
+# PCA ----
+pr_chem <- prcomp(scale(chem))
 biplot(pr_chem)
 
 xtrain <- model.matrix(level~., train)[,-1]
@@ -158,23 +149,13 @@ data_level$level <- factor(data_level$level)
 and_rf <- randomForest(level~., data = data_level[train_idx,])
 and_pred <- predict(and_rf,data_level[test_idx,])
 table(data_level[test_idx,]$level,and_pred)
-
 summary(fit)
-chem[,1:13] <- log(chem[,1:13])
-test_idx <- sample(1:138,size = 30)
-train_idx <- not(1:138 %in% test_idx)
-chem_test <- chem[test_idx,]
-chem_train <- chem[train_idx,]
-
-logit_level <- glm(level~caffeine+GCG ,data=chem_train,family=binomial())
-# logit_level <- glm(level~Catechin+caffeine+FAA+polyphenol,data=chem,family=binomial())
-summary(logit_level)
-predicted_level <- predict(logit_level,chem_test)
-predicted_level <- ifelse(predicted_level<=0.7,'B','C')
-table(chem_test$level ,predicted_level)
 
 
-# forward sekection ----
+
+
+
+# forward selection ----
 
 # 1.建立空的線性迴歸(只有截距項)
 null <- glm(level~1 ,data=chem_train,family=binomial())
@@ -268,6 +249,3 @@ ridge.test <- predict(ridge.lm,chem_test)
 cross_validation(ridge.test,ytest)
 
 
-=======
-123
->>>>>>> 1489e354cecfa72dc6f26594e36adf81d86035ef
