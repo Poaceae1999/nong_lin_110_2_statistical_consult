@@ -1,5 +1,6 @@
 library(tidyverse)
 library(grid)
+library('xaringan')
 tea <- readRDS('nonglin_tea.RDS')
 tea_and_weather <- readRDS('tea_and_weather.RDS')
 number <- tea %>% select(duration_oc,Total_leaf:total_catechins) %>% select(-(G1L:O9L))
