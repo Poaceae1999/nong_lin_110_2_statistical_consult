@@ -435,36 +435,7 @@ ridge.test <- predict(ridge.lm,chem_test)
 cross_validation(ridge.test,chem_test_y)
 ```
 
-```{r,include = FALSE}
-scatter_hist_plot <- function(dat) {
-  n = length(colnames(dat))
-  for (i in 1:n) 
-    {
-     for(j in 1:n)
-      {
-        if(i==j)
-        {
-          test <- ggplot(data=dat,aes(get(colnames(dat[i]))))+
-            geom_histogram(bins = 30,fill = 'darkgreen')+
-            labs(x=paste(i,colnames(dat[i]),y=NULL))
-        }
-        else
-        {
-          test <- ggplot(data=dat,aes(get(colnames(dat[i])),get(colnames(dat[j]))),colour='green')+
-            geom_point()+
-            labs(x=paste(i,colnames(dat[i])),y=paste(j,colnames(dat[j])))
-        }
-        print(test,vp=viewport(width=1/n, 
-                               height=1/n,
-                               x=((i-1)%%n)/n+1/(2*n),
-                               y=((j-1)%%n)/n+1/(2*n)
-                               )
-              )
-      }
-    }
-}
-
-
+```{}
 ```
 
 ```{r}
