@@ -8,10 +8,9 @@ output:
     df_print: paged
 ---
 
+# library import 
 ```{R,include = FALSE}
-set.seed(100)
-tea <- readRDS('nonglin_tea.RDS')
-analyze_data <- readRDS('analyze.RDS')
+
 library(caret)  
 library(car)
 library(glmnet)  
@@ -28,7 +27,33 @@ library(tidyverse)
 library(forecast)
 ```
 
+# data import
+```{R,include = FALSE}
+set.seed(100)
+tea <- readRDS('nonglin_tea.RDS')
+analyze_data <- readRDS('analyze.RDS')
+weather <-  analyze_data %>% select(.,c(caffeine ,acu_mean_temp:Solar_rad_MJM2))
 
+# png('var_scatter_hist_weather_chem.png',width = 3400,height=3400)
+# scatter_hist_plot(weather_chem)
+# dev.off()
+```
+#data cleaning
+```{r}
+numeric_dat <- analyze_data %>% select(.,-c(key,level,observe_ys,observe_date:sample_label,FAA:total_catechins,G1L:O9L,cutting_height,tea_buds_cm,year,season,temp_differ))
+numeric_dat <- analyze_data %>% select(.,-c(key,observe_ys,cultivar,observe_date:sample_label,G1L:O9L,year,temp_differ))
+chem <- analyze_data %>% select(,c(polyphenol:ECG,level))
+table(chem$level)
+chem$level <- factor(chem$level) %>% as.numeric()
+chem$level <- ifelse(chem$level>1,1,0)
+test_idx <- sample(1:138,size = 30)
+train_idx <- not(1:138 %in% test_idx)
+chem_test <- chem[test_idx,]
+chem_train <- chem[train_idx,]
+chem_test_y <- chem_test$level
+```
+
+# functions include
 ```{r}
 simple_roc <- function(labels, scores){
   labels <- labels[order(scores, decreasing=TRUE)]
@@ -56,7 +81,6 @@ simple_roc <- function(labels, scores){
   }
 
 ```
-
 ```{r,include = FALSE}
 cross_validation <- function(y_pred,ytest){
   y_pred <- ifelse(y_pred<=0.75,'B','C')
@@ -64,7 +88,7 @@ cross_validation <- function(y_pred,ytest){
   print(table(y_pred,ytest))
 }
 ```
-
+# data explore
 ```{R}
 ggplot(data=tea,aes(observe_ys,tea_kind,color=cultivar))+
   geom_point()+
@@ -92,7 +116,6 @@ ggplot(data=tea,aes(duration_oc,cutting_height,color=cultivar))+
 
 
 ```{r}
-numeric_dat <- analyze_data %>% select(.,-c(key,level,observe_ys,observe_date:sample_label,FAA:total_catechins,G1L:O9L,cutting_height,tea_buds_cm,year,season,temp_differ))
 train_idx <- sample(1:138,108)
 test_idx <- !(1:138 %in%train_idx)
 train <- numeric_dat[train_idx,]
@@ -102,12 +125,12 @@ ytrain <- train$polyphenol
 
 ytest <- test$polyphenol
 xtest <- model.matrix(polyphenol~., test)[,-1]
-
+season7th <- 0
+xtest <- cbind(xtest,season7th)
 lambdas_to_try <- 10^seq(-3, 7, length.out = 100)
 lasso_cv <- cv.glmnet(xtrain, ytrain, alpha = 1, lambda = lambdas_to_try)
 plot(lasso_cv)
 best_lambda_lasso <- lasso_cv$lambda.min
-best_lambda_lasso
 lasso_mod <- glmnet(xtrain, ytrain, alpha = 1, lambda = best_lambda_lasso)
 predict.glmnet(lasso_mod, type = 'coefficients')
 fit <- lm(polyphenol~leaf_number+duration_oc+Total_leaf+acu_mean_temp,data = test)
@@ -123,14 +146,10 @@ mean((lm_pred-ytest)^2)
 ```
 
 ```{r}
-analyze_data <- readRDS('analyze.RDS') 
-numeric_dat <- analyze_data %>% select(.,-c(key,observe_ys,cultivar,observe_date:sample_label,G1L:O9L,year,temp_differ))
 train_idx <- sample(1:138,108)
 test_idx <- !(1:138 %in%train_idx)
 train <- numeric_dat[train_idx,]
 test <- numeric_dat[test_idx,]
-
-
 
 xtrain <- model.matrix(polyphenol~.+acu_mean_temp*RH*Solar_rad_H*Solar_rad_MJM2, train)[,-1]
 ytrain <- train$polyphenol
@@ -200,16 +219,12 @@ and_pred <- predict(and_rf,data_caffeine[test_idx,])
 (mean((and_pred-ytest)^2)/var(ytest))^0.5
 importanceplot()
 ```
-
+# level~chem
 ```{r}
-chem <- analyze_data %>% select(,polyphenol:total_catechins)
 pr_chem <- prcomp(scale(chem) )
 biplot(pr_chem)
 importanceplot()
 ```
-
-```
-
 
 ```{r}
 xtrain <- model.matrix(level~., train)[,-1]
@@ -223,13 +238,7 @@ and_pred <- predict(and_rf,data_level[test_idx,])
 table(data_level[test_idx,]$level,and_pred)
 importanceplot()
 
-chem <- analyze_data %>% select(,c(polyphenol:total_catechins,level))
-chem$level <- factor(chem$level)
-chem[,1:13] <- log(chem[,1:13])
-test_idx <- sample(1:138,size = 30)
-train_idx <- not(1:138 %in% test_idx)
-chem_test <- chem[test_idx,]
-chem_train <- chem[train_idx,]
+
 logit_level <- glm(level~caffeine+GCG ,data=chem_train,family=binomial())
 summary(logit_level)
 predicted_level <- predict(logit_level,chem_test)
@@ -239,19 +248,6 @@ table(chem_test$level ,predicted_level)
 ```
 
 
-
-```{r}
-chem <- analyze_data %>% select(,c(polyphenol:ECG,level))
-table(chem$level)
-chem$level <- factor(chem$level) %>% as.numeric()
-chem$level <- ifelse(chem$level>1,1,0)
-
-test_idx <- sample(1:138,size = 30)
-train_idx <- not(1:138 %in% test_idx)
-chem_test <- chem[test_idx,]
-chem_train <- chem[train_idx,]
-chem_test_y <- chem_test$level
-```
 
 
 ```{r}
@@ -266,14 +262,13 @@ forward.lm = step(null,
                   # (一定要加上界 upper=full，不可以不加) 
                   scope=list(lower=null, upper=full), 
                   direction="forward")
+y_pred_forward <- predict(forward.lm,chem_test)
+cross_validation(y_pred_forward,chem_test_y)
+
 backward.lm = step(full, 
                   # 這裡可以加下界(lower=null)，也可以不加
                   scope = list(upper=full), 
                   direction="backward")  
-
-
-y_pred_forward <- predict(forward.lm,chem_test)
-cross_validation(y_pred_forward,chem_test_y)
 y_pred_backward <- predict(backward.lm,chem_test)
 cross_validation(y_pred_backward,chem_test_y)
 ```
@@ -483,14 +478,6 @@ scatter_hist_plot <- function(dat) {
 
 
 ```{r}
-weather <-  analyze_data %>% select(.,c(caffeine ,acu_mean_temp:Solar_rad_MJM2))
-
-# png('var_scatter_hist_weather_chem.png',width = 3400,height=3400)
-# scatter_hist_plot(weather_chem)
-# dev.off()
-```
-
-```{r}
 test_idx <- sample(1:138,size = 30)
 train_idx <- not(1:138 %in% test_idx)
 weather_test <- weather[test_idx,]
@@ -534,6 +521,5 @@ accuracy(y_pred_backward,weather_test_y)
 ```
 5/13 report
 ```{r}
-null <- lm('caffeine'  ~1 ,data=weather_train)
 ```
 
