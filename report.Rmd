@@ -8,7 +8,8 @@ output:
     df_print: paged
 ---
 
-# library import 
+# library import
+
 ```{R,include = FALSE}
 
 library(caret)  
@@ -28,6 +29,7 @@ library(forecast)
 ```
 
 # data import
+
 ```{R,include = FALSE}
 set.seed(100)
 tea <- readRDS('nonglin_tea.RDS')
@@ -38,9 +40,11 @@ weather <-  analyze_data %>% select(.,c(caffeine ,acu_mean_temp:Solar_rad_MJM2))
 # scatter_hist_plot(weather_chem)
 # dev.off()
 ```
-#data cleaning
+
+\#data cleaning
+
 ```{r}
-numeric_dat <- analyze_data %>% select(.,-c(key,level,observe_ys,observe_date:sample_label,FAA:total_catechins,G1L:O9L,cutting_height,tea_buds_cm,year,season,temp_differ))
+
 numeric_dat <- analyze_data %>% select(.,-c(key,observe_ys,cultivar,observe_date:sample_label,G1L:O9L,year,temp_differ))
 chem <- analyze_data %>% select(,c(polyphenol:ECG,level))
 table(chem$level)
@@ -51,15 +55,18 @@ train_idx <- not(1:138 %in% test_idx)
 chem_test <- chem[test_idx,]
 chem_train <- chem[train_idx,]
 chem_test_y <- chem_test$level
+
 ```
 
 # functions include
+
 ```{r}
 simple_roc <- function(labels, scores){
   labels <- labels[order(scores, decreasing=TRUE)]
   data.frame(TPR=cumsum(labels)/sum(labels), FPR=cumsum(!labels)/sum(!labels), labels)
 }
 ```
+
 ```{r}
 importanceplot <- function(pp=and_rf) {
   i_scores <- varImp(pp, conditional=TRUE)
@@ -81,6 +88,7 @@ importanceplot <- function(pp=and_rf) {
   }
 
 ```
+
 ```{r,include = FALSE}
 cross_validation <- function(y_pred,ytest){
   y_pred <- ifelse(y_pred<=0.75,'B','C')
@@ -88,25 +96,46 @@ cross_validation <- function(y_pred,ytest){
   print(table(y_pred,ytest))
 }
 ```
+
+```{r}
+rf_this <- function(y,dat,train, test,train_idx, test_idx) {
+  model_formula <- formula(paste0(y,'~.'))
+  xtrain <- model.matrix(model_formula, train)[,-1]
+  ytrain <- train[y]
+  ytest <- test[y]
+  xtest <- model.matrix(model_formula, test)[,-1] %>%  as_tibble()%>% as.matrix()
+  and_rf <- randomForest(model_formula, data = dat[train_idx,])
+  print(and_rf)
+  importanceplot(and_rf)
+}
+```
+
 # data explore
-season , tea type , cultivar are not balaced included
+
+season , tea type , cultivar are not balanced included
+
 ```{R}
 ggplot(data=tea,aes(observe_ys,tea_kind,color=cultivar))+
   geom_point()+
   facet_wrap(~cultivar)
 ```
+
 cutting height is not equal each time
+
 ```{R}
 ggplot(data=tea,aes(observe_ys,cutting_height,color=cultivar))+
   geom_point()+
   facet_wrap(~cultivar)
 ```
+
 some times seems linear but most of time is not , when split in to different cultivar
+
 ```{R}
 ggplot(data=tea,aes(duration_oc,cutting_height,color=cultivar))+
   geom_point()+
   facet_wrap(~cultivar)
 ```
+
 use lasso to choose var in weather and plant phenotypes
 
 ```{r}
@@ -129,85 +158,62 @@ lasso_mod <- glmnet(xtrain, ytrain, alpha = 1, lambda = best_lambda_lasso)
 print(lasso_mod)
 ```
 
-use randomforest to estimate chem*~weather
-1.polyphenol
+use randomforest to estimate chem\*\~weather
+
+1.polyphenol,acu_temp is most important
 
 ```{r}
-xtrain <- model.matrix(polyphenol~.+acu_mean_temp*RH*Solar_rad_H*Solar_rad_MJM2, train)[,-1]
-ytrain <- train$polyphenol
-ytest <- test$polyphenol
-xtest <- model.matrix(polyphenol~.+acu_mean_temp*RH*Solar_rad_H*Solar_rad_MJM2, test)[,-1] %>%  as_tibble()%>% as.matrix()
-data_polyphenol <- analyze_data %>% select(., c(cultivar,rain,polyphenol,acu_mean_temp,RH,Solar_rad_H,Solar_rad_MJM2))
-and_rf <- randomForest(polyphenol~.+acu_mean_temp*RH*Solar_rad_H*Solar_rad_MJM2, data = data_polyphenol[train_idx,])
-and_pred <- predict(and_rf,data_polyphenol[test_idx,])
-(mean((and_pred-ytest)^2)/var(ytest))^0.5
-accuracy(and_pred,ytest)
-importanceplot()
+rf_dat <- analyze_data %>% select(., c(polyphenol,cultivar,rain,acu_mean_temp,RH,Solar_rad_H,Solar_rad_MJM2))
+rf_this('polyphenol',rf_dat,train,test,train_idx,test_idx)
 ```
 
-```{r}
-xtrain <- model.matrix(FAA~., train)[,-1]
-ytrain <- train$FAA
-ytest <- test$FAA
-xtest <- model.matrix(FAA~., test)[,-1] %>%  as_tibble()  %>% as.matrix()
-data_FAA <- analyze_data %>% select(., c(cultivar,FAA,rain,acu_mean_temp,RH,Solar_rad_H,Solar_rad_MJM2))
-and_rf <- randomForest(FAA~., data = data_FAA[train_idx,])
-and_pred <- predict(and_rf,data_FAA[test_idx,])
-(mean((and_pred-ytest)^2)/var(ytest))^0.5
-importanceplot()
-```
+2.FAA,acu_temp is most important
 
 ```{r}
-xtrain <- model.matrix(Gallic_Acid~., train)[,-1]
-ytrain <- train$Gallic_Acid
-ytest <- test$Gallic_Acid
-xtest <- model.matrix(Gallic_Acid~., test)[,-1] %>%  as_tibble()  %>% as.matrix()
-data_Gallic_Acid <- analyze_data %>%  select(., c(cultivar,rain,Gallic_Acid,acu_mean_temp,RH,Solar_rad_H,Solar_rad_MJM2))
-and_rf <- randomForest(Gallic_Acid~., data = data_Gallic_Acid[train_idx,])
-and_pred <- predict(and_rf,data_Gallic_Acid[test_idx,])
-(mean((and_pred-ytest)^2)/var(ytest))^0.5
-importanceplot()
-```
-```{r}
-xtrain <- model.matrix(GC~., train)[,-1]
-ytrain <- train$GC
-ytest <- test$GC
-xtest <- model.matrix(GC~., test)[,-1] %>%  as_tibble() %>% as.matrix()
-data_GC <- analyze_data %>%  select(., c(cultivar,rain,GC,acu_mean_temp,RH,Solar_rad_H,Solar_rad_MJM2))
-and_rf <- randomForest(GC~., data = data_GC[train_idx,])
-and_pred <- predict(and_rf,data_GC[test_idx,])
-(mean((and_pred-ytest)^2)/var(ytest))^0.5
-importanceplot()
-```
-```{r}
-xtrain <- model.matrix(GCG~., train)[,-1]
-ytrain <- train$GCG
-ytest <- test$GCG
-xtest <- model.matrix(GCG~., test)[,-1] %>%  as_tibble() %>% as.matrix()
-data_GCG <- analyze_data %>% select(., c(cultivar,GCG,rain,acu_mean_temp,RH,Solar_rad_H,Solar_rad_MJM2))
-and_rf <- randomForest(GCG~., data = data_GCG[train_idx,])
-and_pred <- predict(and_rf,data_GCG[test_idx,])
-(mean((and_pred-ytest)^2)/var(ytest))^0.5
-importanceplot()
+rf_dat <- analyze_data %>% select(., c(FAA,cultivar,rain,acu_mean_temp,RH,Solar_rad_H,Solar_rad_MJM2))
+rf_this('FAA',rf_dat,train,test,train_idx,test_idx)
 ```
 
+Gallic_Acid,,acu_temp is most important
+
 ```{r}
-xtrain <- model.matrix(Catechin~., train)[,-1]
-ytrain <- train$Catechin
-ytest <- test$Catechin
-xtest <- model.matrix(Catechin~., test)[,-1] %>%  as_tibble() %>% as.matrix()
-data_caffeine <- analyze_data %>% select(., c(cultivar,Catechin,rain,acu_mean_temp,RH,Solar_rad_H,Solar_rad_MJM2))
-and_rf <- randomForest(Catechin~., data = data_caffeine[train_idx,])
-and_pred <- predict(and_rf,data_caffeine[test_idx,])
-(mean((and_pred-ytest)^2)/var(ytest))^0.5
-importanceplot()
+rf_dat <- analyze_data %>% select(., c(Gallic_Acid,cultivar,rain,acu_mean_temp,RH,Solar_rad_H,Solar_rad_MJM2))
+rf_this('Gallic_Acid',rf_dat,train,test,train_idx,test_idx)
+
 ```
-# level~chem
+
+GC,acu_temp is most important
+
+```{r}
+rf_dat <- analyze_data %>% select(., c(GC,cultivar,rain,acu_mean_temp,RH,Solar_rad_H,Solar_rad_MJM2))
+rf_this('GC',rf_dat,train,test,train_idx,test_idx)
+
+```
+
+GCG,acu_temp is most important
+
+```{r}
+rf_dat <- analyze_data %>% select(., c(GCG,cultivar,rain,acu_mean_temp,RH,Solar_rad_H,Solar_rad_MJM2))
+rf_this('GCG',rf_dat,train,test,train_idx,test_idx)
+
+```
+
+Catechin,acu_temp is most important
+
+```{r}
+rf_dat <- analyze_data %>% select(., c(Catechin,cultivar,rain,acu_mean_temp,RH,Solar_rad_H,Solar_rad_MJM2))
+rf_this('Catechin',rf_dat,train,test,train_idx,test_idx)
+
+```
+
+# level\~chem
+
 ```{r}
 pr_chem <- prcomp(scale(chem) )
 biplot(pr_chem)
-importanceplot()
 ```
+
+random forest ver.
 
 ```{r}
 xtrain <- model.matrix(level~., train)[,-1]
@@ -219,19 +225,11 @@ data_level$level <- factor(data_level$level)
 and_rf <- randomForest(level~., data = data_level[train_idx,])
 and_pred <- predict(and_rf,data_level[test_idx,])
 table(data_level[test_idx,]$level,and_pred)
-importanceplot()
-
-
-logit_level <- glm(level~caffeine+GCG ,data=chem_train,family=binomial())
-summary(logit_level)
-predicted_level <- predict(logit_level,chem_test)
-predicted_level <- ifelse(predicted_level<=0.7,'B','C')
-table(chem_test$level ,predicted_level)
+importanceplot(and_rf)
 
 ```
 
-
-
+stepwise - logistic regression ver.
 
 ```{r}
 # 1.建立空的線性迴歸(只有截距項)
@@ -244,14 +242,18 @@ forward.lm = step(null,
                   # 最大不會超過完整的線性迴歸
                   # (一定要加上界 upper=full，不可以不加) 
                   scope=list(lower=null, upper=full), 
-                  direction="forward")
+                  direction="forward",
+                  trace = 0)
+print(forward.lm)
 y_pred_forward <- predict(forward.lm,chem_test)
 cross_validation(y_pred_forward,chem_test_y)
 
 backward.lm = step(full, 
                   # 這裡可以加下界(lower=null)，也可以不加
                   scope = list(upper=full), 
-                  direction="backward")  
+                  direction="backward",
+                  trace = 0) 
+print(backward.lm)
 y_pred_backward <- predict(backward.lm,chem_test)
 cross_validation(y_pred_backward,chem_test_y)
 ```
@@ -272,6 +274,7 @@ par(mfcol = c(1, 2)) # cool!!
 plot(lasso, xvar='lambda', main="Lasso")
 plot(ridge, xvar='lambda', main="Ridge")
 ```
+
 ```{R}
 # 經由 cv 的手法，評估每個模型在不同 lambda 下 
 # 的 cvm(mean cross-validated error)
@@ -280,6 +283,7 @@ cv.lasso = cv.glmnet(x = as.matrix(chem[, -13]),
                      alpha = 1,  # lasso
                      family = "binomial")
 ```
+
 ```{R}
 # 評估每個模型的 cvm(mean cross-validated error)後
 # 取最小 cvm 模型所對應的 lambda
@@ -317,6 +321,7 @@ ridge.lm <- glm(level ~ ., family = 'binomial',data = chem_train[, c(select.vari
 ridge.test <- predict(ridge.lm,chem_test)
 cross_validation(ridge.test,chem_test_y)
 ```
+
 ```{r}
 chem <- analyze_data %>% select(,c(polyphenol:ECG,level))
 chem$level <- factor(chem$level) %>% as.numeric()
@@ -357,6 +362,7 @@ cross_validation(y_pred_forward,chem_test_y)
 y_pred_backward <- predict(backward.lm,chem_test)
 cross_validation(y_pred_backward,chem_test_y)
 ```
+
 ```{R}
 # lasso & ridge for chem ----
 ridge = glmnet(x = as.matrix(chem[, -13]), 
@@ -400,6 +406,7 @@ summary(lasso.lm)
 lasso.test <- predict(lasso.lm,chem_test)
 cross_validation(lasso.test,chem_test_y)
 ```
+
 ```{R}
 # 經由 cv 的手法，評估每個模型在不同 lambda 下 
 # 的 cvm(mean cross-validated error)
@@ -427,6 +434,7 @@ summary(ridge.lm)
 ridge.test <- predict(ridge.lm,chem_test)
 cross_validation(ridge.test,chem_test_y)
 ```
+
 ```{r,include = FALSE}
 scatter_hist_plot <- function(dat) {
   n = length(colnames(dat))
@@ -458,7 +466,6 @@ scatter_hist_plot <- function(dat) {
 
 
 ```
-
 
 ```{r}
 test_idx <- sample(1:138,size = 30)
@@ -502,8 +509,9 @@ y_pred_backward <- predict(backward.lm,weather_test)
 accuracy(y_pred_backward,weather_test_y)
 
 ```
+
 5/13 report
+
 ```{r}
 
 ```
-
