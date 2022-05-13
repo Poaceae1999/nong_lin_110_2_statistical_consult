@@ -61,8 +61,8 @@ simple_roc <- function(labels, scores){
 }
 ```
 ```{r}
-  importanceplot <- function(pp=and_rf) {
-    i_scores <- varImp(pp, conditional=TRUE)
+importanceplot <- function(pp=and_rf) {
+  i_scores <- varImp(pp, conditional=TRUE)
   #Gathering rownames in 'var'  and converting it to the factor
   #to provide 'fill' parameter for the bar chart.
   i_scores <- i_scores %>% tibble::rownames_to_column("var")
@@ -89,31 +89,25 @@ cross_validation <- function(y_pred,ytest){
 }
 ```
 # data explore
+season , tea type , cultivar are not balaced included
 ```{R}
 ggplot(data=tea,aes(observe_ys,tea_kind,color=cultivar))+
   geom_point()+
   facet_wrap(~cultivar)
 ```
-
+cutting height is not equal each time
 ```{R}
 ggplot(data=tea,aes(observe_ys,cutting_height,color=cultivar))+
   geom_point()+
   facet_wrap(~cultivar)
 ```
-
-
-```{R}
-ggplot(data=tea,aes(observe_ys,cutting_height,color=cultivar))+
-  geom_point()+
-  facet_wrap(~cultivar)
-```
-
+some times seems linear but most of time is not , when split in to different cultivar
 ```{R}
 ggplot(data=tea,aes(duration_oc,cutting_height,color=cultivar))+
   geom_point()+
   facet_wrap(~cultivar)
 ```
-
+use lasso to choose var in weather and plant phenotypes
 
 ```{r}
 train_idx <- sample(1:138,108)
@@ -132,25 +126,13 @@ lasso_cv <- cv.glmnet(xtrain, ytrain, alpha = 1, lambda = lambdas_to_try)
 plot(lasso_cv)
 best_lambda_lasso <- lasso_cv$lambda.min
 lasso_mod <- glmnet(xtrain, ytrain, alpha = 1, lambda = best_lambda_lasso)
-predict.glmnet(lasso_mod, type = 'coefficients')
-fit <- lm(polyphenol~leaf_number+duration_oc+Total_leaf+acu_mean_temp,data = test)
-lasso_pred <- predict(lasso_mod,  newx = xtest)
-lm_pred <- predict(fit)
-
+print(lasso_mod)
 ```
 
+use randomforest to estimate chem*~weather
+1.polyphenol
 
 ```{r}
-mean((lasso_pred-ytest)^2)
-mean((lm_pred-ytest)^2)
-```
-
-```{r}
-train_idx <- sample(1:138,108)
-test_idx <- !(1:138 %in%train_idx)
-train <- numeric_dat[train_idx,]
-test <- numeric_dat[test_idx,]
-
 xtrain <- model.matrix(polyphenol~.+acu_mean_temp*RH*Solar_rad_H*Solar_rad_MJM2, train)[,-1]
 ytrain <- train$polyphenol
 ytest <- test$polyphenol
@@ -162,6 +144,7 @@ and_pred <- predict(and_rf,data_polyphenol[test_idx,])
 accuracy(and_pred,ytest)
 importanceplot()
 ```
+
 ```{r}
 xtrain <- model.matrix(FAA~., train)[,-1]
 ytrain <- train$FAA
@@ -521,5 +504,6 @@ accuracy(y_pred_backward,weather_test_y)
 ```
 5/13 report
 ```{r}
+
 ```
 
