@@ -35,6 +35,35 @@ simple_roc <- function(labels, scores){
   data.frame(TPR=cumsum(labels)/sum(labels), FPR=cumsum(!labels)/sum(!labels), labels)
 }
 ```
+```{r}
+  importanceplot <- function(pp=and_rf) {
+    i_scores <- varImp(pp, conditional=TRUE)
+  #Gathering rownames in 'var'  and converting it to the factor
+  #to provide 'fill' parameter for the bar chart.
+  i_scores <- i_scores %>% tibble::rownames_to_column("var")
+  i_scores$var<- i_scores$var %>% as.factor()
+
+  #Plotting the bar and polar charts for comparing variables
+  i_bar <- ggplot(data = i_scores) +
+    geom_bar(
+      stat = "identity",#it leaves the data without count and bin
+      mapping = aes(x = var, y=Overall, fill = var),
+      show.legend = FALSE,
+      width = 1
+    ) +
+    labs(x = NULL, y = NULL)
+  i_bar + coord_flip() + theme_minimal()
+  }
+
+```
+
+```{r,include = FALSE}
+cross_validation <- function(y_pred,ytest){
+  y_pred <- ifelse(y_pred<=0.75,'B','C')
+  ytest <- chem_test$level
+  print(table(y_pred,ytest))
+}
+```
 
 ```{R}
 ggplot(data=tea,aes(observe_ys,tea_kind,color=cultivar))+
@@ -101,24 +130,6 @@ test_idx <- !(1:138 %in%train_idx)
 train <- numeric_dat[train_idx,]
 test <- numeric_dat[test_idx,]
 
-  importanceplot <- function(pp=and_rf) {
-    i_scores <- varImp(pp, conditional=TRUE)
-  #Gathering rownames in 'var'  and converting it to the factor
-  #to provide 'fill' parameter for the bar chart.
-  i_scores <- i_scores %>% tibble::rownames_to_column("var")
-  i_scores$var<- i_scores$var %>% as.factor()
-
-  #Plotting the bar and polar charts for comparing variables
-  i_bar <- ggplot(data = i_scores) +
-    geom_bar(
-      stat = "identity",#it leaves the data without count and bin
-      mapping = aes(x = var, y=Overall, fill = var),
-      show.legend = FALSE,
-      width = 1
-    ) +
-    labs(x = NULL, y = NULL)
-  i_bar + coord_flip() + theme_minimal()
-  }
 
 
 xtrain <- model.matrix(polyphenol~.+acu_mean_temp*RH*Solar_rad_H*Solar_rad_MJM2, train)[,-1]
@@ -227,13 +238,7 @@ table(chem_test$level ,predicted_level)
 
 ```
 
-```{r,include = FALSE}
-cross_validation <- function(y_pred,ytest){
-  y_pred <- ifelse(y_pred<=0.75,'B','C')
-  ytest <- chem_test$level
-  print(table(y_pred,ytest))
-}
-```
+
 
 ```{r}
 chem <- analyze_data %>% select(,c(polyphenol:ECG,level))
@@ -526,6 +531,9 @@ accuracy(y_pred_forward,weather_test_y)
 y_pred_backward <- predict(backward.lm,weather_test)
 accuracy(y_pred_backward,weather_test_y)
 
-
-
 ```
+5/13 report
+```{r}
+null <- lm('caffeine'  ~1 ,data=weather_train)
+```
+
