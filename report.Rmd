@@ -108,6 +108,70 @@ rf_this <- function(y,dat,train, test,train_idx, test_idx) {
   print(and_rf)
   importanceplot(and_rf)
 }
+{r,include = FALSE}
+
+scatter_hist_plot <- function(dat) {
+  n = length(colnames(dat))
+  for (i in 1:n) 
+    {
+     for(j in 1:n)
+      {
+        if(i==j)
+        {
+          test <- ggplot(data=dat,aes(get(colnames(dat[i]))))+
+            geom_histogram(bins = 30,fill = 'darkgreen')+
+            labs(x=paste(i,colnames(dat[i]),y=NULL))
+        }
+        else
+        {
+          test <- ggplot(data=dat,aes(get(colnames(dat[i])),get(colnames(dat[j]))),colour='green')+
+            geom_point()+
+            labs(x=paste(i,colnames(dat[i])),y=paste(j,colnames(dat[j])))
+        }
+        print(test,vp=viewport(width=1/n, 
+                               height=1/n,
+                               x=((i-1)%%n)/n+1/(2*n),
+                               y=((j-1)%%n)/n+1/(2*n)
+                               )
+              )
+      }
+    }
+}
+```
+
+```{r}
+for_back_selection <- function(y, train,test, test_y,model_chosen) {
+  # 1.建立空的線性迴歸(只有截距項)
+  
+  null <- model_chosen(formula(paste0(y,'~1')) ,data=train,family=binomial())
+  full <- model_chosen(formula(paste0(y,'~.')) ,data=train,family=binomial())
+  
+  # 2.使用step()，一個一個把變數丟進去
+  forward.lm = step(null, 
+                    # 從空模型開始，一個一個丟變數，
+                    # 最大不會超過完整的線性迴歸
+                    # (一定要加上界 upper=full，不可以不加) 
+                    scope=list(lower=null, upper=full), 
+                    direction="forward",
+                    trace = 0)
+  print('forward')
+  print(summary(forward.lm))
+  y_pred_forward <- predict(forward.lm,test)
+  cross_validation(y_pred_forward,test_y)
+  print(accuracy(y_pred_forward,test_y))
+  print('==============')
+  print('backward')
+  backward.lm = step(full, 
+                    # 這裡可以加下界(lower=null)，也可以不加
+                    scope = list(upper=full), 
+                    direction="backward",
+                    trace = 0) 
+  print(summary(backward.lm))
+  y_pred_backward <- predict(backward.lm,test)
+  cross_validation(y_pred_backward,test_y)
+  print(accuracy(y_pred_backward,test_y))
+  print('==============')
+}
 ```
 
 # data explore
@@ -232,30 +296,7 @@ importanceplot(and_rf)
 stepwise - logistic regression ver.
 
 ```{r}
-# 1.建立空的線性迴歸(只有截距項)
-null <- glm(level~1 ,data=chem_train,family=binomial())
-full <- glm(level~. ,data=chem_train,family=binomial())
-
-# 2.使用step()，一個一個把變數丟進去
-forward.lm = step(null, 
-                  # 從空模型開始，一個一個丟變數，
-                  # 最大不會超過完整的線性迴歸
-                  # (一定要加上界 upper=full，不可以不加) 
-                  scope=list(lower=null, upper=full), 
-                  direction="forward",
-                  trace = 0)
-print(forward.lm)
-y_pred_forward <- predict(forward.lm,chem_test)
-cross_validation(y_pred_forward,chem_test_y)
-
-backward.lm = step(full, 
-                  # 這裡可以加下界(lower=null)，也可以不加
-                  scope = list(upper=full), 
-                  direction="backward",
-                  trace = 0) 
-print(backward.lm)
-y_pred_backward <- predict(backward.lm,chem_test)
-cross_validation(y_pred_backward,chem_test_y)
+for_back_selection(level,chem_train,chem_test,chem_test_y)
 ```
 
 ```{R}
@@ -322,6 +363,8 @@ ridge.test <- predict(ridge.lm,chem_test)
 cross_validation(ridge.test,chem_test_y)
 ```
 
+data log transform
+
 ```{r}
 chem <- analyze_data %>% select(,c(polyphenol:ECG,level))
 chem$level <- factor(chem$level) %>% as.numeric()
@@ -337,30 +380,7 @@ chem_test_y <- chem_test$level
 ```
 
 ```{r}
-# 1.建立空的線性迴歸(只有截距項)
-null <- glm(level~1 ,data=chem_train,family=binomial())
-full <- glm(level~. ,data=chem_train,family=binomial())
-
-# 2.使用step()，一個一個把變數丟進去
-forward.lm = step(null, 
-                  # 從空模型開始，一個一個丟變數，
-                  # 最大不會超過完整的線性迴歸
-                  # (一定要加上界 upper=full，不可以不加) 
-                  scope=list(lower=null, upper=full), 
-                  direction="forward")
-backward.lm = step(full, 
-                  # 這裡可以加下界(lower=null)，也可以不加
-                  scope = list(upper=full), 
-                  direction="backward")  
-
-summary(forward.lm)
-
-summary(backward.lm)
-
-y_pred_forward <- predict(forward.lm,chem_test)
-cross_validation(y_pred_forward,chem_test_y)
-y_pred_backward <- predict(backward.lm,chem_test)
-cross_validation(y_pred_backward,chem_test_y)
+for_back_selection('level',chem_train,chem_test,chem_test_y,glm)
 ```
 
 ```{R}
@@ -435,9 +455,6 @@ ridge.test <- predict(ridge.lm,chem_test)
 cross_validation(ridge.test,chem_test_y)
 ```
 
-```{}
-```
-
 ```{r}
 test_idx <- sample(1:138,size = 30)
 train_idx <- not(1:138 %in% test_idx)
@@ -447,6 +464,7 @@ weather_test_y <- weather_test$caffeine
 ```
 
 ```{r}
+for_back_selection('caffeine',weather_train,weather_test,weather_test_y,lm)
 # 1.建立空的線性迴歸(只有截距項)
 null <- lm(caffeine  ~1 ,data=weather_train)
 full <- lm(caffeine  ~. ,data=weather_train)
