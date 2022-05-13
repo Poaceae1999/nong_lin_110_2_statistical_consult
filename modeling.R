@@ -266,7 +266,7 @@ select.varialbes
 ridge.lm <- glm(level ~ ., family = 'binomial',data = chem_train[, c(select.varialbes, "level")])
 ridge.test <- predict(ridge.lm,chem_test)
 cross_validation(ridge.test,ytest)
-2241235
+
 
 =======
 123
