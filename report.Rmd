@@ -1,7 +1,7 @@
 ---
 title: "report"
 author: "ZJH"
-date: "`r Sys.Date()`"
+date: "`r Sys.time()`"
 output:
   word_document: default
   html_document: 
@@ -175,6 +175,46 @@ for_back_selection <- function(y, train,test, test_y,model_chosen) {
   cross_validation(y_pred_backward,test_y)
   print(accuracy(y_pred_backward,test_y))
   print('==============')
+}
+
+```
+
+```{r}
+lasso_and_ridge <- function(dat,lasso_1_rigde_0,lm_model,family_type,yname,train,test,test_y)
+{
+  fnction_name <- ifelse(lasso_1_rigde_0==1,'lasso','ridge')
+  print(fnction_name)
+  y_idx <- which(colnames(dat)==yname)
+  # lasso & ridge for dat ----
+  model_step = glmnet(x = as.matrix(dat[, -y_idx]), 
+                 y = dat[, y_idx], 
+                 alpha = lasso_1_rigde_0,
+                 family = family_type)
+  
+  plot(model_step, xvar='lambda', main=fnction_name)
+  cv.model_step = cv.glmnet(x = as.matrix(dat[, -y_idx]), 
+                       y = dat[, y_idx], 
+                       alpha = lasso_1_rigde_0,  # lasso
+                       family = family_type)
+  best.lambda_model_step = cv.model_step$lambda.min
+  abline(v=log(best.lambda_model_step), col="blue", lty=5.5 )
+
+    
+    # 觀察哪些變數被挑選出來，其係數不為 0的那些
+    
+  # 經由 cv 的手法，評估每個模型在不同 lambda 下 
+  # 的 cvm(mean cross-validated error)
+
+  # 評估每個模型的 cvm(mean cross-validated error)後
+  # 取最小 cvm 模型所對應的 lambda
+    select.ind = which(coef(cv.model_step, s = "lambda.min") != 0)
+    select.ind = select.ind[-1]-1 # remove `Intercept` and 平移剩下的ind
+    select.varialbes = colnames(dat)[select.ind]
+    model_formula <- formula(paste0(yname,'~.'))
+    model.lm <- lm_model(model_formula, family = family_type,data = train[, c(select.varialbes, yname)])
+    print(summary(model.lm))
+    model.test <- predict(model.lm,test)
+    cross_validation(model.test,test_y)
 }
 ```
 
@@ -388,75 +428,11 @@ for_back_selection('level',chem_train,chem_test,chem_test_y,glm)
 ```
 
 ```{R}
-# lasso & ridge for chem ----
-ridge = glmnet(x = as.matrix(chem[, -13]), 
-               y = chem[, 13], 
-               alpha = 0,
-               family = "binomial")
-
-lasso = glmnet(x = as.matrix(chem[, -13]), 
-               y = chem[, 13], 
-               alpha = 1,
-               family = "binomial")
-
-par(mfcol = c(1, 2)) # cool!!
-plot(lasso, xvar='lambda', main="Lasso")
-plot(ridge, xvar='lambda', main="Ridge")
-
-# 經由 cv 的手法，評估每個模型在不同 lambda 下 
-# 的 cvm(mean cross-validated error)
-cv.lasso = cv.glmnet(x = as.matrix(chem[, -13]), 
-                     y = chem[, 13], 
-                     alpha = 1,  # lasso
-                     family = "binomial")
-
-# 評估每個模型的 cvm(mean cross-validated error)後
-# 取最小 cvm 模型所對應的 lambda
-best.lambda_lasso = cv.lasso$lambda.min
-
-
-plot(lasso, xvar='lambda', main="Lasso")
-abline(v=log(best.lambda_lasso), col="blue", lty=5.5 )
-# 觀察哪些變數被挑選出來，其係數不為 0的那些
-coef(cv.lasso, s = "lambda.min")
-select.ind = which(coef(cv.lasso, s = "lambda.min") != 0)
-select.ind = select.ind[-1]-1 # remove `Intercept` and 平移剩下的ind
-select.ind # 第幾個變數是重要的 (不看 `Intercept`)
-select.varialbes = colnames(chem)[select.ind]
-select.varialbes
-lasso.lm <- glm(level ~ ., family = 'binomial',data = chem_train[, c(select.varialbes, "level")])
-print(lasso.lm)
-summary(lasso.lm)
-lasso.test <- predict(lasso.lm,chem_test)
-cross_validation(lasso.test,chem_test_y)
+lasso_and_ridge(chem,lasso_1_rigde_0 = 1,lm_model = glm,'binomial','level',chem_train,chem_test,chem_test_y)
 ```
 
 ```{R}
-# 經由 cv 的手法，評估每個模型在不同 lambda 下 
-# 的 cvm(mean cross-validated error)
-cv.ridge = cv.glmnet(x = as.matrix(chem[, -13]), 
-                     y = chem[, 13], 
-                     alpha = 0,  # lasso
-                     family = "binomial")
-
-# 評估每個模型的 cvm(mean cross-validated error)後
-# 取最小 cvm 模型所對應的 lambda
-best.lambda = cv.ridge$lambda.min
-
-plot(lasso, xvar='lambda', main="Ridge")
-abline(v=log(best.lambda), col="blue", lty=5.5 )
-# 觀察哪些變數被挑選出來，其係數不為 0的那些
-coef(cv.lasso, s = "lambda.min")
-select.ind = which(coef(cv.lasso, s = "lambda.min") != 0)
-select.ind = select.ind[-1]-1 # remove `Intercept` and 平移剩下的ind
-select.ind # 第幾個變數是重要的 (不看 `Intercept`)
-select.varialbes = colnames(chem)[select.ind]
-select.varialbes
-ridge.lm <- glm(level ~ ., family = 'binomial',data = chem_train[, c(select.varialbes, "level")])
-print(ridge.lm)
-summary(ridge.lm)
-ridge.test <- predict(ridge.lm,chem_test)
-cross_validation(ridge.test,chem_test_y)
+lasso_and_ridge(chem,lasso_1_rigde_0 = 0,lm_model = glm,'binomial','level',chem_train,chem_test,chem_test_y)
 ```
 
 ```{r}
@@ -475,6 +451,7 @@ for_back_selection('caffeine',weather_train,weather_test,weather_test_y,lm)
 5/14 report
 
 ```{r}
-test
+
+lasso_and_ridge(chem,lasso_1_rigde_0 = 1,lm_model = glm,'binomial','level',chem_train,chem_test,chem_test_y)
 
 ```
