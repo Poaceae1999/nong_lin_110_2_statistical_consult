@@ -1,10 +1,10 @@
 library(tidyverse)
 library(lubridate)
-library(rpart)
 
-tea <- read_csv("D:/living/002_execute/Class/統計諮詢/農林公司/nonglin.csv")
+
+tea <- read_csv("./nonglin.csv")
 weather0 <-
-  read_csv("D:/living/002_execute/Class/統計諮詢/農林公司/氣象/nonglin_weather.csv")
+  read_csv("./氣象/nonglin_weather.csv")
 
 # treat tea data and save RDS ----
 tea$observe_ys <- paste(tea$year, tea$season)
@@ -63,14 +63,12 @@ export <- tea %>%
 saveRDS(export, "nonglin_tea.RDS")
 # na treatment ----
 weather <-
-  read_csv("D:/living/002_execute/Class/統計諮詢/農林公司/氣象/nongling_weather_20220428.csv")
+  read_csv("./氣象/nongling_weather_20220428.csv")
 tea <- readRDS("nonglin_tea.RDS")
 
 # to fill temp to previous day
 weather <- as_tibble(weather)
 summary(weather)
-
-weather$month
 Month_list <- list('January','February','March','April','May','June','July','August','September','October','November','December')
 month_list <- list('-01','-02','-03','-04','-05','-06','-07','-08','-09','-10','-11','-12')
 Month_tranform_list <- list(Month_list,month_list)
@@ -86,7 +84,6 @@ Aug_NA3 <- filter(weather,month=='2020-08') %>% select(,`RH%`)
 Aug_NA3 <- Aug_NA3[[1]] %>% mean(,na.rm = TRUE)
 weather[is.na(weather$`SOLAR RAD(H)`),11:13] <- cbind(Aug_NA3,Aug_NA,Aug_NA2)
 
-View(weather[is.na(weather$MEAN.TEMP),])
 
 for (i in 1:length(weather$MEAN.TEMP)) {
   if (is.na(weather$MEAN.TEMP[i])) {
@@ -95,12 +92,13 @@ for (i in 1:length(weather$MEAN.TEMP)) {
     weather$LOW[i] <- weather$LOW[i - 1]
     weather$RAIN[i] <- weather$RAIN[i - 1]
   }
+  if(weather$LOW[i]<=0)
+    weather$LOW[i] <- weather$LOW[i - 1]
 }
-
-
 
 # combine weather and tea----
 acu_mean_temp <- vector("double", length(tea$previous_cutting_date))
+degree_day <- vector("double", length(tea$previous_cutting_date))
 Solar_rad_H <- vector("double", length(tea$previous_cutting_date))
 Solar_rad_MJM2 <- vector("double", length(tea$previous_cutting_date))
 RH <- vector("double", length(tea$previous_cutting_date))
@@ -114,6 +112,7 @@ for (i in 1:length(tea$previous_cutting_date)) {
     # acu_mean_temp[i] <- 'can not map date'
     next
   }
+  l_degree_day <- (weather$HIGH[idx_c:idx_o] %>% cumsum()%>% last())+ (weather$LOW[idx_c:idx_o] %>% cumsum()%>% last())/2
   l_mean_temp <- weather$MEAN.TEMP[idx_c:idx_o] %>% cumsum()%>% last()
   l_rain <- weather$RAIN[idx_c:idx_o] %>% cumsum() %>% last()
   l_solar_h <- weather$`SOLAR RAD(H)`[idx_c:idx_o] %>% cumsum() %>% last()
@@ -138,16 +137,6 @@ for (i in 1:length(tea$previous_cutting_date)) {
   }
 }
 
-# 問生長速度
-# 總高度H=採取長度l+裁切高度h
-# 第1次生長高度=(h1+l1-h0)
-# 缺少紀錄的問題，出現斷點即重計
-# 
-# 問斷點：
-# 依照時間建立各品種間的次序
-# 根據各品種次序核對本次裁切時間與下一次的前次採切時間一致
-# 如果不一致且相差日數小於10天則將下一次的前次裁切時間改為本次裁切時間
-#地點告訴我們不能這樣做...，但採摘時間是雷同的，或許當作同一個母體試試?
 analyze_data <- tea %>% 
       cbind(.,acu_mean_temp,rain,growth_mean_temp,temp_differ,RH,Solar_rad_H,Solar_rad_MJM2) %>%
       filter(.,acu_mean_temp!=0) %>%

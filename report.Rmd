@@ -1,5 +1,5 @@
 ---
-title: "report"
+title: "report7"
 author: "ZJH"
 date: "`r Sys.time()`"
 output:
@@ -9,14 +9,14 @@ output:
 ---
 
 ```{r global_options,include=FALSE}
-knitr::opts_chunk$set(cache = TRUE,warning = FALSE)
+knitr::opts_chunk$set(cache = F,warning = FALSE)
 
 ```
 
 # library import
 
 ```{R,include = FALSE,echo = FALSE}
-
+set.seed(100)
 library(caret)  
 library(car)
 library(glmnet)  
@@ -31,6 +31,7 @@ library(ranger)       # a faster implementation of randomForest       # an aggre
 library(pheatmap)
 library(tidyverse)
 library(forecast)
+library(pROC)
 ```
 
 # data import
@@ -39,8 +40,8 @@ library(forecast)
 set.seed(100)
 tea <- readRDS('nonglin_tea.RDS')
 analyze_data <- readRDS('analyze.RDS')
-weather <-  analyze_data %>% select(.,c(caffeine ,acu_mean_temp:Solar_rad_MJM2))
 
+#weather$acu_mean_temp <- weather$acu_mean_temp - mean(weather$acu_mean_temp)
 # png('var_scatter_hist_weather_chem.png',width = 3400,height=3400)
 # scatter_hist_plot(weather_chem)
 # dev.off()
@@ -95,9 +96,9 @@ importanceplot <- function(pp=and_rf) {
 ```
 
 ```{R,include = FALSE,echo = FALSE}
-cross_validation <- function(y_pred,ytest){
-  y_pred <- ifelse(y_pred<=0.75,'B','C')
-  ytest <- chem_test$level
+cross_validation <- function(y_pred,ytest,prob=0.75){
+  y_pred <- ifelse(y_pred<=prob,'B','C')
+  ytest <- if(is.null(dim(ytest))){ytest}else{ytest$level}
   print(table(y_pred,ytest))
 }
 ```
@@ -144,11 +145,20 @@ scatter_hist_plot <- function(dat) {
 ```
 
 ```{R,include = FALSE,echo = FALSE}
-for_back_selection <- function(y, train,test, test_y,model_chosen) {
+print_model = function(type,model,test,test_y)
+  {
+    print(type)
+    print(summary(model))
+    y_pred <- predict(model,test)
+    #cross_validation(y_pred,test_y,prob=0.75)
+    #print(accuracy(y_pred,test_y))
+  }
+for_back_selection <- function(y,train,test, test_y,model_chosen, full_model = '') {
+
   # 1.建立空的線性迴歸(只有截距項)
-  
+  full_model <- if(full_model==''){formula(paste0(y,'~.'))}else{full_model}
   null <- model_chosen(formula(paste0(y,'~1')) ,data=train,family=binomial())
-  full <- model_chosen(formula(paste0(y,'~.')) ,data=train,family=binomial())
+  full <- model_chosen(full_model ,data=train,family=binomial())
   
   # 2.使用step()，一個一個把變數丟進去
   forward.lm = step(null, 
@@ -158,28 +168,46 @@ for_back_selection <- function(y, train,test, test_y,model_chosen) {
                     scope=list(lower=null, upper=full), 
                     direction="forward",
                     trace = 0)
-  print('forward')
-  print(summary(forward.lm))
-  y_pred_forward <- predict(forward.lm,test)
-  cross_validation(y_pred_forward,test_y)
-  print(accuracy(y_pred_forward,test_y))
-  print('==============')
-  print('backward')
   backward.lm = step(full, 
                     # 這裡可以加下界(lower=null)，也可以不加
                     scope = list(upper=full), 
                     direction="backward",
                     trace = 0) 
-  print(summary(backward.lm))
-  y_pred_backward <- predict(backward.lm,test)
-  cross_validation(y_pred_backward,test_y)
-  print(accuracy(y_pred_backward,test_y))
   print('==============')
+  if(is.null(summary(forward.lm)$adj.r.squared))
+    {
+      if(summary(forward.lm)$aic<summary(backward.lm)$aic)
+        {
+        print_model('forward',forward.lm,test,test_y)
+        select_model = forward.lm
+        }
+      else
+      {
+      print_model('backward',backward.lm,test,test_y)
+      select_model = backward.lm
+      }
+    }
+    else
+    {
+      if(summary(forward.lm)$adj.r.squared>summary(backward.lm)$adj.r.squared)
+      {
+        print_model('forward',forward.lm,test,test_y)
+        select_model = forward.lm
+        }
+      else
+      {
+      print_model('backward',backward.lm,test,test_y)
+      select_model = backward.lm
+      }
+    }
+  print('==============')
+  
+  return(select_model)
 }
 
 ```
 
-```{r}
+```{r,include = FALSE,echo = FALSE}
 lasso_and_ridge <- function(dat,lasso_1_rigde_0,lm_model,family_type,yname,train,test,test_y)
 {
   fnction_name <- ifelse(lasso_1_rigde_0==1,'lasso','ridge')
@@ -191,13 +219,13 @@ lasso_and_ridge <- function(dat,lasso_1_rigde_0,lm_model,family_type,yname,train
                  alpha = lasso_1_rigde_0,
                  family = family_type)
   
-  plot(model_step, xvar='lambda', main=fnction_name)
+  #plot(model_step, xvar='lambda', main=fnction_name)
   cv.model_step = cv.glmnet(x = as.matrix(dat[, -y_idx]), 
                        y = dat[, y_idx], 
                        alpha = lasso_1_rigde_0,  # lasso
                        family = family_type)
   best.lambda_model_step = cv.model_step$lambda.min
-  abline(v=log(best.lambda_model_step), col="blue", lty=5.5 )
+  #abline(v=log(best.lambda_model_step), col="blue", lty=5.5 )
 
     
     # 觀察哪些變數被挑選出來，其係數不為 0的那些
@@ -215,6 +243,82 @@ lasso_and_ridge <- function(dat,lasso_1_rigde_0,lm_model,family_type,yname,train
     print(summary(model.lm))
     model.test <- predict(model.lm,test)
     cross_validation(model.test,test_y)
+}
+```
+
+```{r,include = FALSE,echo = FALSE}
+model_gen_for_power_one <- function(data,power,y_name)
+  {
+    target_idx <- which(colnames(data)==y_name)
+    target <- colnames(data)[-target_idx]
+    container <- ''
+    for(j in power){
+    for (i in 1:length(target))
+      {
+          if(length(target)==i)
+            {
+              container <- paste0(container,
+                                  'I(',target[i],'^',j,')')
+              break
+            }
+        container <- paste0(container,
+                            'I(',target[i],'^',j,')','+')
+      }
+    }
+    return(container)
+}
+
+model_gen <- function(data,power,y_name){
+  container <- ''
+  counter=0
+  for(i in power)
+  {
+    counter = counter+1
+   if(counter==length(power))
+    {
+      container <- paste0(container,
+                          model_gen_for_power_one(data,
+                                                  i,
+                                                  y_name))
+    }
+  else
+    {
+      container <- paste0(container,
+                          model_gen_for_power_one(data,
+                                                  i,y_name),
+                          '+')
+    }
+  }
+  
+  return(paste0(y_name,'~',container))
+}
+
+```
+
+```{r,include = FALSE,echo = FALSE}
+get_weather_data <- function(chem_target)
+{
+  weather <-  analyze_data %>% select(.,c(chem_target ,acu_mean_temp:Solar_rad_MJM2))
+  return(weather)
+}
+```
+
+```{r,include = FALSE,echo = FALSE}
+roc_IU <- function(roc)
+{
+  IU <- abs(roc$sensitivities-roc$auc) + abs(roc$specificities-roc$auc)
+  best_IU <- min(IU)
+  best_threshold <- roc$thresholds[which(IU==best_IU)]
+  return(best_threshold)
+}
+print_roc <- function(test_y,test,model)
+{
+  pred_y <- predict(model,test)
+  model_roc <- roc(test_y,pred_y,level=c(control = 0, case = 1),direction = 'auto')
+  print(model_roc)
+  cutpoint <- roc_IU(model_roc)
+  print(paste0('cut_point:',cutpoint,'\n'))
+  plot(model_roc,main = names(model$coef))
 }
 ```
 
@@ -242,6 +346,10 @@ some times seems linear but most of time is not , when split in to different cul
 ggplot(data=tea,aes(duration_oc,cutting_height,color=cultivar))+
   geom_point()+
   facet_wrap(~cultivar)
+
+ggplot(data=analyze_data,aes(acu_mean_temp,season,color=cultivar))+
+  geom_point()+
+  facet_wrap(~season)
 ```
 
 use lasso to choose var in weather and plant phenotypes
@@ -266,62 +374,16 @@ lasso_mod <- glmnet(xtrain, ytrain, alpha = 1, lambda = best_lambda_lasso)
 print(lasso_mod)
 ```
 
-use randomforest to estimate chem\*\~weather
+# level\~chem\*
 
-1.polyphenol,acu_temp is most important
-
-```{r}
-rf_dat <- analyze_data %>% select(., c(polyphenol,cultivar,rain,acu_mean_temp,RH,Solar_rad_H,Solar_rad_MJM2))
-rf_this('polyphenol',rf_dat,train,test,train_idx,test_idx)
-```
-
-2.FAA,acu_temp is most important
-
-```{r}
-rf_dat <- analyze_data %>% select(., c(FAA,cultivar,rain,acu_mean_temp,RH,Solar_rad_H,Solar_rad_MJM2))
-rf_this('FAA',rf_dat,train,test,train_idx,test_idx)
-```
-
-Gallic_Acid,,acu_temp is most important
-
-```{r}
-rf_dat <- analyze_data %>% select(., c(Gallic_Acid,cultivar,rain,acu_mean_temp,RH,Solar_rad_H,Solar_rad_MJM2))
-rf_this('Gallic_Acid',rf_dat,train,test,train_idx,test_idx)
-
-```
-
-GC,acu_temp is most important
-
-```{r}
-rf_dat <- analyze_data %>% select(., c(GC,cultivar,rain,acu_mean_temp,RH,Solar_rad_H,Solar_rad_MJM2))
-rf_this('GC',rf_dat,train,test,train_idx,test_idx)
-
-```
-
-GCG,acu_temp is most important
-
-```{r}
-rf_dat <- analyze_data %>% select(., c(GCG,cultivar,rain,acu_mean_temp,RH,Solar_rad_H,Solar_rad_MJM2))
-rf_this('GCG',rf_dat,train,test,train_idx,test_idx)
-
-```
-
-Catechin,acu_temp is most important
-
-```{r}
-rf_dat <- analyze_data %>% select(., c(Catechin,cultivar,rain,acu_mean_temp,RH,Solar_rad_H,Solar_rad_MJM2))
-rf_this('Catechin',rf_dat,train,test,train_idx,test_idx)
-
-```
-
-# level\~chem
+## var selection
 
 ```{r}
 pr_chem <- prcomp(scale(chem) )
 biplot(pr_chem)
 ```
 
-random forest ver.
+### random forest ver.
 
 ```{r}
 xtrain <- model.matrix(level~., train)[,-1]
@@ -337,77 +399,19 @@ importanceplot(and_rf)
 
 ```
 
-stepwise - logistic regression ver.
+### forward and backward selection
 
 ```{r}
 for_back_selection('level',chem_train,chem_test,chem_test_y,glm)
 ```
 
-```{R}
-# lasso & ridge for chem ----
-ridge = glmnet(x = as.matrix(chem[, -13]), 
-               y = chem[, 13], 
-               alpha = 0,
-               family = "binomial")
+### lasso-ridge regression ver.
 
-lasso = glmnet(x = as.matrix(chem[, -13]), 
-               y = chem[, 13], 
-               alpha = 1,
-               family = "binomial")
-
-par(mfcol = c(1, 2)) # cool!!
-plot(lasso, xvar='lambda', main="Lasso")
-plot(ridge, xvar='lambda', main="Ridge")
+```{r}
+lasso_and_ridge(chem,1,lm_model = glm,family_type = binomial,yname = 'level',train = chem_train,test= chem_test,test_y = chem_test_y)
 ```
 
-```{R}
-# 經由 cv 的手法，評估每個模型在不同 lambda 下 
-# 的 cvm(mean cross-validated error)
-cv.lasso = cv.glmnet(x = as.matrix(chem[, -13]), 
-                     y = chem[, 13], 
-                     alpha = 1,  # lasso
-                     family = "binomial")
-```
-
-```{R}
-# 評估每個模型的 cvm(mean cross-validated error)後
-# 取最小 cvm 模型所對應的 lambda
-best.lambda_lasso = cv.lasso$lambda.min
-
-# 觀察哪些變數被挑選出來，其係數不為 0的那些
-select.ind = which(coef(cv.lasso, s = "lambda.min") != 0)
-select.ind = select.ind[-1]-1 # remove `Intercept` and 平移剩下的ind
-select.ind # 第幾個變數是重要的 (不看 `Intercept`)
-select.varialbes = colnames(chem)[select.ind]
-select.varialbes
-lasso.lm <- glm(level ~ ., family = 'binomial',data = chem_test[, c(select.varialbes, "level")])
-lasso.test <- predict(lasso.lm,chem_test)
-cross_validation(lasso.test,ytest)
-
-# 經由 cv 的手法，評估每個模型在不同 lambda 下 
-# 的 cvm(mean cross-validated error)
-cv.ridge = cv.glmnet(x = as.matrix(chem[, -13]), 
-                     y = chem[, 13], 
-                     alpha = 0,  # lasso
-                     family = "binomial")
-
-# 評估每個模型的 cvm(mean cross-validated error)後
-# 取最小 cvm 模型所對應的 lambda
-best.lambda = cv.ridge$lambda.min
-plot(lasso, xvar='lambda', main="Ridge")
-abline(v=log(best.lambda), col="blue", lty=5.5 )
-# 觀察哪些變數被挑選出來，其係數不為 0的那些
-select.ind = which(coef(cv.lasso, s = "lambda.min") != 0)
-select.ind = select.ind[-1]-1 # remove `Intercept` and 平移剩下的ind
-select.ind # 第幾個變數是重要的 (不看 `Intercept`)
-select.varialbes = colnames(chem)[select.ind]
-select.varialbes
-ridge.lm <- glm(level ~ ., family = 'binomial',data = chem_train[, c(select.varialbes, "level")])
-ridge.test <- predict(ridge.lm,chem_test)
-cross_validation(ridge.test,chem_test_y)
-```
-
-data log transform
+## var selection after data log transform
 
 ```{r}
 chem <- analyze_data %>% select(,c(polyphenol:ECG,level))
@@ -423,9 +427,13 @@ chem_train <- chem[train_idx,]
 chem_test_y <- chem_test$level
 ```
 
+### for-back- logistic
+
 ```{r}
-for_back_selection('level',chem_train,chem_test,chem_test_y,glm)
+level_for_back_model <- for_back_selection('level',chem_train,chem_test,chem_test_y,glm)
 ```
+
+### lasso-ridge
 
 ```{R}
 lasso_and_ridge(chem,lasso_1_rigde_0 = 1,lm_model = glm,'binomial','level',chem_train,chem_test,chem_test_y)
@@ -435,23 +443,130 @@ lasso_and_ridge(chem,lasso_1_rigde_0 = 1,lm_model = glm,'binomial','level',chem_
 lasso_and_ridge(chem,lasso_1_rigde_0 = 0,lm_model = glm,'binomial','level',chem_train,chem_test,chem_test_y)
 ```
 
+## parameter tuning
+
+比較過後backward selection 的模型AUC 最大
+
+Goal: 定義各 chem 在各條件下對應的 level
+
+```{r}
+# 比較過後backward selection 的模型AUC 最大。
+print_roc(chem_test_y,chem_test,level_for_back_model)
+```
+
+```{r}
+all_glm <- glm(level~caffeine+Catechin+FAA+GCG+EGC+Theanine,family = binomial(),data = chem_train)
+print_roc(chem_test_y,chem_test,all_glm)
+```
+
+```{r}
+caffeine_glm <- glm(level~caffeine,family = binomial(),data = chem_train)
+Catechin_glm <- glm(level~Catechin,family = binomial(),data = chem_train)
+FAA_glm <- glm(level~FAA,family = binomial(),data = chem_train)
+GCG_glm <- glm(level~GCG,family = binomial(),data = chem_train)
+EGC_glm <- glm(level~EGC,family = binomial(),data = chem_train)
+Theanine_glm <- glm(level~Theanine,family = binomial(),data = chem_train)
+polyphenol_glm <- glm(level~polyphenol,family = binomial(),data = chem_train)
+GA_glm <- glm(level~Gallic_Acid,family = binomial(),data = chem_train)
+```
+
+```{r}
+print_roc(chem_test_y,chem_test,caffeine_glm)
+print_roc(chem_test_y,chem_test,Catechin_glm)
+print_roc(chem_test_y,chem_test,FAA_glm)
+print_roc(chem_test_y,chem_test,EGC_glm)
+print_roc(chem_test_y,chem_test,GCG_glm)
+print_roc(chem_test_y,chem_test,Theanine_glm)
+print_roc(chem_test_y,chem_test,polyphenol_glm)
+print_roc(chem_test_y,chem_test,GA_glm)
+```
+
+```{r}
+tune1_glm <- glm(level~caffeine+Catechin+polyphenol,family = binomial(),data = chem_train)
+print_roc(chem_test_y,chem_test,tune1_glm)
+tune2_glm <- glm(level~caffeine+Catechin,family = binomial(),data = chem_train)
+print_roc(chem_test_y,chem_test,tune2_glm)
+```
+
+# chem\*\~weather\*
+
+```{r}
+chem_target <- c('caffeine','Catechin')
+```
+
 ```{r}
 test_idx <- sample(1:138,size = 30)
 train_idx <- not(1:138 %in% test_idx)
-weather_test <- weather[test_idx,]
-weather_train <- weather[train_idx,]
-weather_test_y <- weather_test$caffeine  
+
+for (y_name in chem_target)
+{
+  print(y_name)
+  weather <- get_weather_data(y_name)
+  weather_test <- weather[test_idx,]
+  weather_train <- weather[train_idx,]
+  weather_test_y <- weather_test[y_name]
+  #full_model <- formula(paste0(model_gen(weather,1,y_name)))
+  for_back_selection(y_name,weather_train,weather_test,weather_test_y,lm )
+  print('===============')
+}
 ```
 
+## var selection base on quardratic and interaction
+
+Since the R\^2 is low , We try this,but the result is not better than main effect,hide the result.
+
+```{r,include=F}
+full_model <- formula(model_gen(chem,1:2,'level'))
+for_back_selection('level',chem_train,chem_test,chem_test_y,glm,full_model = full_model )
+```
+
+```{r all chem quadratic,include=F}
+chem_target <- colnames(chem)[1:12]
+for (y_name in chem_target)
+{
+  print(y_name)
+  weather <- get_weather_data(y_name)
+  weather_test <- weather[test_idx,]
+  weather_train <- weather[train_idx,]
+  weather_test_y <- weather_test[y_name]
+  full_model <- formula(paste0(model_gen(weather,1:2,y_name),'+(.)^2'))
+  for_back_selection(y_name,weather_train,weather_test,weather_test_y,lm,full_model = full_model )
+  print('===============')
+}
+```
+
+```{r,include=F}
+for (y_name in 'level')
+{
+  print(y_name)
+  full_model <- formula(paste0(model_gen(chem,1:2,y_name),'+(.)^2'))
+  for_back_selection(y_name,chem_train,chem_test,chem_test_y,lm,full_model = full_model )
+  print('===============')
+}
+```
+
+## random forest to chem\~weather
+
+use randomforest to estimate chem\*\~weather
+
+1.polyphenol,acu_temp is most important
+
 ```{r}
-for_back_selection('caffeine',weather_train,weather_test,weather_test_y,lm)
+rf_dat <- analyze_data %>% select(., c(polyphenol,cultivar,rain,acu_mean_temp,RH,Solar_rad_H,Solar_rad_MJM2))
+rf_this('polyphenol',rf_dat,train,test,train_idx,test_idx)
+```
+
+Catechin,acu_temp is most important
+
+```{r}
+rf_dat <- analyze_data %>% select(., c(Catechin,cultivar,rain,acu_mean_temp,RH,Solar_rad_H,Solar_rad_MJM2))
+rf_this('Catechin',rf_dat,train,test,train_idx,test_idx)
 
 ```
 
-5/14 report
+Caffeine,acu_temp is most important
 
 ```{r}
-
-lasso_and_ridge(chem,lasso_1_rigde_0 = 1,lm_model = glm,'binomial','level',chem_train,chem_test,chem_test_y)
-
+rf_dat <- analyze_data %>% select(., c(caffeine,cultivar,rain,acu_mean_temp,RH,Solar_rad_H,Solar_rad_MJM2))
+rf_this('caffeine',rf_dat,train,test,train_idx,test_idx)
 ```
