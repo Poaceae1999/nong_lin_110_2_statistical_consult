@@ -9,14 +9,15 @@ output:
 ---
 
 ```{r global_options,include=FALSE}
-knitr::opts_chunk$set(cache = F,warning = FALSE)
+knitr::opts_chunk$set(cache =F,warning = FALSE,include = F)
 
 ```
 
 # library import
 
 ```{R,include = FALSE,echo = FALSE}
-set.seed(100)
+set.seed(6010)
+library(gvlma)
 library(caret)  
 library(car)
 library(glmnet)  
@@ -37,7 +38,7 @@ library(pROC)
 # data import
 
 ```{R,include = FALSE,echo = FALSE}
-set.seed(100)
+set.seed(6010)
 tea <- readRDS('nonglin_tea.RDS')
 analyze_data <- readRDS('analyze.RDS')
 
@@ -90,7 +91,7 @@ importanceplot <- function(pp=and_rf) {
       width = 1
     ) +
     labs(x = NULL, y = NULL)
-  i_bar + coord_flip() + theme_minimal()
+  return(i_bar + coord_flip() + theme_minimal())
   }
 
 ```
@@ -112,7 +113,7 @@ rf_this <- function(y,dat,train, test,train_idx, test_idx) {
   xtest <- model.matrix(model_formula, test)[,-1] %>%  as_tibble()%>% as.matrix()
   and_rf <- randomForest(model_formula, data = dat[train_idx,])
   print(and_rf)
-  importanceplot(and_rf)
+  print(importanceplot(and_rf))
 }
 
 scatter_hist_plot <- function(dat) {
@@ -154,7 +155,7 @@ print_model = function(type,model,test,test_y)
     #print(accuracy(y_pred,test_y))
   }
 for_back_selection <- function(y,train,test, test_y,model_chosen, full_model = '') {
-
+  
   # 1.建立空的線性迴歸(只有截距項)
   full_model <- if(full_model==''){formula(paste0(y,'~.'))}else{full_model}
   null <- model_chosen(formula(paste0(y,'~1')) ,data=train,family=binomial())
@@ -199,6 +200,10 @@ for_back_selection <- function(y,train,test, test_y,model_chosen, full_model = '
       print_model('backward',backward.lm,test,test_y)
       select_model = backward.lm
       }
+    }
+  if(class(select_model)=='lm')
+    {
+    print(summary(gvlma(select_model)))
     }
   print('==============')
   
@@ -304,21 +309,38 @@ get_weather_data <- function(chem_target)
 ```
 
 ```{r,include = FALSE,echo = FALSE}
-roc_IU <- function(roc)
+# we pause using IU becuause it may have some bug , and it is very severe when sample size is small
+roc_IU_idx <- function(roc)
 {
   IU <- abs(roc$sensitivities-roc$auc) + abs(roc$specificities-roc$auc)
   best_IU <- min(IU)
-  best_threshold <- roc$thresholds[which(IU==best_IU)]
-  return(best_threshold)
+  idx <-  which(IU==best_IU)
+  return(idx)
 }
+roc_ER_idx <- function(roc)
+{
+  ER <- abs(1-roc$sensitivities)^2 + abs(1-roc$specificities)^2
+  best_ER <- min(ER)
+  idx <-  which(ER==best_ER)
+  return(idx)
+}
+
 print_roc <- function(test_y,test,model)
 {
   pred_y <- predict(model,test)
   model_roc <- roc(test_y,pred_y,level=c(control = 0, case = 1),direction = 'auto')
   print(model_roc)
-  cutpoint <- roc_IU(model_roc)
-  print(paste0('cut_point:',cutpoint,'\n'))
-  plot(model_roc,main = names(model$coef))
+  best_idx <- roc_ER_idx(model_roc)
+  x <- round(model_roc$specificities[best_idx],3)
+  y <- round(model_roc$sensitivities[best_idx],3)
+  print(paste0('cut_point:',round(model_roc$thresholds[best_idx],3)))
+  print(paste0('Sensetivity:',y))
+  print(paste0('Specificity:',x))
+  title <-paste(as.character(model$formula)[2],'~',as.character(model$formula)[3])
+  plot(model_roc,main = title)
+  points(x=x,y= y)
+  text(x = x,y=y+0.1,labels = paste('(',x,',',y,')'))
+  text(x=0.2,y=0.2,labels = paste(model_roc$auc))
 }
 ```
 
@@ -355,6 +377,7 @@ ggplot(data=analyze_data,aes(acu_mean_temp,season,color=cultivar))+
 use lasso to choose var in weather and plant phenotypes
 
 ```{r}
+set.seed(6010)
 train_idx <- sample(1:138,108)
 test_idx <- !(1:138 %in%train_idx)
 train <- numeric_dat[train_idx,]
@@ -401,7 +424,7 @@ importanceplot(and_rf)
 
 ### forward and backward selection
 
-```{r}
+```{r,include = T}
 for_back_selection('level',chem_train,chem_test,chem_test_y,glm)
 ```
 
@@ -429,7 +452,7 @@ chem_test_y <- chem_test$level
 
 ### for-back- logistic
 
-```{r}
+```{r,include = T}
 level_for_back_model <- for_back_selection('level',chem_train,chem_test,chem_test_y,glm)
 ```
 
@@ -445,56 +468,40 @@ lasso_and_ridge(chem,lasso_1_rigde_0 = 0,lm_model = glm,'binomial','level',chem_
 
 ## parameter tuning
 
-比較過後backward selection 的模型AUC 最大
+比較過後backward selection 原來的模型AUC 最大
 
 Goal: 定義各 chem 在各條件下對應的 level
 
-```{r}
-# 比較過後backward selection 的模型AUC 最大。
-print_roc(chem_test_y,chem_test,level_for_back_model)
-```
-
-```{r}
-all_glm <- glm(level~caffeine+Catechin+FAA+GCG+EGC+Theanine,family = binomial(),data = chem_train)
+```{r,include = T}
+all_glm <- glm(level_for_back_model$formula,family = binomial(),data = chem_train)
+print(summary(all_glm))
 print_roc(chem_test_y,chem_test,all_glm)
 ```
 
-```{r}
-caffeine_glm <- glm(level~caffeine,family = binomial(),data = chem_train)
-Catechin_glm <- glm(level~Catechin,family = binomial(),data = chem_train)
-FAA_glm <- glm(level~FAA,family = binomial(),data = chem_train)
-GCG_glm <- glm(level~GCG,family = binomial(),data = chem_train)
-EGC_glm <- glm(level~EGC,family = binomial(),data = chem_train)
-Theanine_glm <- glm(level~Theanine,family = binomial(),data = chem_train)
-polyphenol_glm <- glm(level~polyphenol,family = binomial(),data = chem_train)
-GA_glm <- glm(level~Gallic_Acid,family = binomial(),data = chem_train)
-```
-
-```{r}
-print_roc(chem_test_y,chem_test,caffeine_glm)
-print_roc(chem_test_y,chem_test,Catechin_glm)
-print_roc(chem_test_y,chem_test,FAA_glm)
-print_roc(chem_test_y,chem_test,EGC_glm)
-print_roc(chem_test_y,chem_test,GCG_glm)
-print_roc(chem_test_y,chem_test,Theanine_glm)
-print_roc(chem_test_y,chem_test,polyphenol_glm)
-print_roc(chem_test_y,chem_test,GA_glm)
-```
-
-```{r}
-tune1_glm <- glm(level~caffeine+Catechin+polyphenol,family = binomial(),data = chem_train)
-print_roc(chem_test_y,chem_test,tune1_glm)
-tune2_glm <- glm(level~caffeine+Catechin,family = binomial(),data = chem_train)
-print_roc(chem_test_y,chem_test,tune2_glm)
+```{r,include = F}
+num_var <- length(attr(all_glm$terms,'term.labels'))
+for (model_idx in 1:num_var) {
+  variables_names <- rownames(attr(all_glm$terms[model_idx],'factors'))
+  model_formula <- formula(paste(variables_names[1],'~',variables_names[2]))
+  
+  single_model <- glm(model_formula,family = binomial(),data = chem_train)
+  print_roc(chem_test_y,chem_test,single_model)
+  print(variables_names[2])
+}
 ```
 
 # chem\*\~weather\*
 
 ```{r}
-chem_target <- c('caffeine','Catechin')
+chem_target <- attr(all_glm$terms,"term.labels")
 ```
 
+## random forest to chem\~weather
+
+use randomforest to estimate chem\*\~weather
+
 ```{r}
+set.seed(6010)
 test_idx <- sample(1:138,size = 30)
 train_idx <- not(1:138 %in% test_idx)
 
@@ -505,23 +512,31 @@ for (y_name in chem_target)
   weather_test <- weather[test_idx,]
   weather_train <- weather[train_idx,]
   weather_test_y <- weather_test[y_name]
-  #full_model <- formula(paste0(model_gen(weather,1,y_name)))
-  for_back_selection(y_name,weather_train,weather_test,weather_test_y,lm )
+  rf_this(y_name,weather,weather_train,weather_test,train_idx,test_idx)
   print('===============')
 }
 ```
 
-## var selection base on quardratic and interaction
+## for -back
 
-Since the R\^2 is low , We try this,but the result is not better than main effect,hide the result.
+total model
 
-```{r,include=F}
-full_model <- formula(model_gen(chem,1:2,'level'))
-for_back_selection('level',chem_train,chem_test,chem_test_y,glm,full_model = full_model )
+```{r,include=TRUE}
+dat <- analyze_data %>% select(.,polyphenol:Solar_rad_MJM2)
+model_value <- t(all_glm$coefficients[-1]*t(dat[names(all_glm$coefficients[-1])])) %>% rowSums()
+model_value <- model_value+all_glm$coefficients[1]
+dat$model_value <- model_value
+dat_train <- dat[train_idx,]
+dat_test <- dat[test_idx,]
+
+full_model <- formula('model_value~temp_differ+acu_mean_temp+rain*growth_mean_temp*RH+Solar_rad_H*Solar_rad_MJM2')
+  for_back_selection(y_name,dat_train,dat_test,dat_train$model_value,lm,full_model = full_model )
 ```
 
-```{r all chem quadratic,include=F}
-chem_target <- colnames(chem)[1:12]
+each chem
+
+```{r,include = T}
+
 for (y_name in chem_target)
 {
   print(y_name)
@@ -529,44 +544,33 @@ for (y_name in chem_target)
   weather_test <- weather[test_idx,]
   weather_train <- weather[train_idx,]
   weather_test_y <- weather_test[y_name]
-  full_model <- formula(paste0(model_gen(weather,1:2,y_name),'+(.)^2'))
+  full_model <- formula(paste0(y_name,'~','temp_differ+acu_mean_temp+rain*growth_mean_temp*RH+Solar_rad_H*Solar_rad_MJM2'))
   for_back_selection(y_name,weather_train,weather_test,weather_test_y,lm,full_model = full_model )
   print('===============')
 }
 ```
 
-```{r,include=F}
-for (y_name in 'level')
-{
-  print(y_name)
-  full_model <- formula(paste0(model_gen(chem,1:2,y_name),'+(.)^2'))
-  for_back_selection(y_name,chem_train,chem_test,chem_test_y,lm,full_model = full_model )
-  print('===============')
-}
+## var selection base on quadratic and interaction
+
+Since the R\^2 is low , We try this,but the result is not better than main effect,hide the result.
+
+```{r chem to level quadratic  ,include=F}
+full_model <- formula(model_gen(chem,1:2,'level'))
+for_back_selection('level',chem_train,chem_test,chem_test_y,glm,full_model = full_model )
 ```
 
-## random forest to chem\~weather
+```{r all chem to weather quadratic,include=F}
 
-use randomforest to estimate chem\*\~weather
-
-1.polyphenol,acu_temp is most important
-
-```{r}
-rf_dat <- analyze_data %>% select(., c(polyphenol,cultivar,rain,acu_mean_temp,RH,Solar_rad_H,Solar_rad_MJM2))
-rf_this('polyphenol',rf_dat,train,test,train_idx,test_idx)
-```
-
-Catechin,acu_temp is most important
-
-```{r}
-rf_dat <- analyze_data %>% select(., c(Catechin,cultivar,rain,acu_mean_temp,RH,Solar_rad_H,Solar_rad_MJM2))
-rf_this('Catechin',rf_dat,train,test,train_idx,test_idx)
-
-```
-
-Caffeine,acu_temp is most important
-
-```{r}
-rf_dat <- analyze_data %>% select(., c(caffeine,cultivar,rain,acu_mean_temp,RH,Solar_rad_H,Solar_rad_MJM2))
-rf_this('caffeine',rf_dat,train,test,train_idx,test_idx)
+# chem_target <- colnames(chem)[1:12]
+# for (y_name in chem_target)
+# {
+#   print(y_name)
+#   weather <- get_weather_data(y_name)
+#   weather_test <- weather[test_idx,]
+#   weather_train <- weather[train_idx,]
+#   weather_test_y <- weather_test[y_name]
+#   full_model <- formula(paste0(model_gen(weather,1:2,y_name),'+(.)^2'))
+#   for_back_selection(y_name,weather_train,weather_test,weather_test_y,lm,full_model = full_model )
+#   print('===============')
+# }
 ```
